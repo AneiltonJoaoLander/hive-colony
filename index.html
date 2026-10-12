@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101217">
+<meta name="description" content="Hive e Hive Colony (versão de fã) para jogar no navegador: contra o computador, em 2 jogadores ou online, com relógio.">
+<title>Hive & Hive Colony</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="-50 -50 100 100" width="30" height="30" aria-hidden="true"><polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="#f5b800" stroke="#1a1a1a" stroke-width="4"/><g transform="scale(.8)" id="logoBee"></g></svg>
+    <h1>Hive <span id="modeBadge">Original</span></h1>
+  </div>
+  <nav>
+    <button id="btnNew" class="btn primary">Novo jogo</button>
+    <button id="btnJoin" class="btn">🌐 Entrar em sala</button>
+    <button id="btnUndo" class="btn">↶ Desfazer</button>
+    <button id="btnFit" class="btn">⌖ Centralizar</button>
+    <button id="btnRules" class="btn">Regras</button>
+  </nav>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <div class="hand hand-top" id="handTop"></div>
+    <div class="board-wrap" id="boardWrap">
+      <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="turnChip" class="chip"></div>
+      <div id="infoBar" class="infobar" hidden></div>
+      <div id="chooser" class="chooser" hidden></div>
+      <div id="toast" class="toast" hidden></div>
+    </div>
+    <div class="hand hand-bottom" id="handBottom"></div>
+  </section>
+
+  <aside class="side">
+    <div id="status" class="card"></div>
+    <div id="gameBtns" class="card row" hidden>
+      <button id="btnResign" class="btn">🏳 Desistir</button>
+    </div>
+    <div id="info" class="card"></div>
+    <div id="actions" class="card" hidden></div>
+    <div class="card history">
+      <h3>Jogadas</h3>
+      <ol id="log"></ol>
+    </div>
+  </aside>
+</main>
+
+<!-- Novo jogo -->
+<dialog id="newDialog">
+  <form method="dialog" id="newForm">
+    <h2>Novo jogo</h2>
+
+    <fieldset>
+      <legend>Versão</legend>
+      <label class="radio"><input type="radio" name="mode" value="original" checked> <b>Hive</b> <small>jogo original</small></label>
+      <label class="radio"><input type="radio" name="mode" value="colony"> <b>Hive Colony</b> <small>versão de fã (expansões não oficiais)</small></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Peças extras (oficiais)</legend>
+      <label class="check"><input type="checkbox" name="mosquito"> Mosquito</label>
+      <label class="check"><input type="checkbox" name="ladybug"> Joaninha</label>
+      <label class="check"><input type="checkbox" name="pillbug"> Tatuzinho</label>
+    </fieldset>
+
+    <fieldset id="colonyOpts">
+      <legend>Módulos do Hive Colony</legend>
+      <label class="check"><input type="checkbox" name="venom"> <b>Venom</b> <small>cada peça tem um verso com outro inseto; virar custa o turno</small></label>
+      <label class="check"><input type="checkbox" name="swarm"> <b>Swarm</b> <small>saco de peças sorteadas; dá para colocar peças do adversário</small></label>
+      <label class="check"><input type="checkbox" name="predators"> <b>Predators</b> <small>Louva-a-deus e Percevejo Assassino eliminam peças</small></label>
+      <label class="check"><input type="checkbox" name="guardians"> <b>Guardians</b> <small>Borboleta e Mariposa; a Rainha também precisa ser coberta</small></label>
+      <label class="check"><input type="checkbox" name="honeycombo"> <b>Honeycombo</b> <small>peça neutra compartilhada que dá 2 jogadas</small></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Adversário</legend>
+      <label class="radio"><input type="radio" name="opp" value="online"> 🌐 Online — criar sala e convidar um amigo</label>
+      <label class="radio"><input type="radio" name="opp" value="human"> 2 jogadores (mesmo aparelho)</label>
+      <label class="radio"><input type="radio" name="opp" value="easy"> Computador — fácil</label>
+      <label class="radio"><input type="radio" name="opp" value="medium" checked> Computador — médio</label>
+      <label class="radio"><input type="radio" name="opp" value="hard"> Computador — difícil</label>
+      <div class="row" id="sideRow">
+        <span>Você joga com:</span>
+        <label class="radio"><input type="radio" name="side" value="0" checked> Brancas (começa)</label>
+        <label class="radio"><input type="radio" name="side" value="1"> Pretas</label>
+        <label class="radio"><input type="radio" name="side" value="r"> Sorteio</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Relógio</legend>
+      <select name="time" class="select">
+        <option value="0">Sem relógio</option>
+        <option value="180+2">3 min + 2 s por jogada</option>
+        <option value="300+3">5 min + 3 s por jogada</option>
+        <option value="600+0" selected>10 min</option>
+        <option value="900+10">15 min + 10 s por jogada</option>
+        <option value="1800+0">30 min</option>
+      </select>
+    </fieldset>
+
+    <menu>
+      <button value="cancel" class="btn" id="newCancel">Cancelar</button>
+      <button value="ok" class="btn primary" id="newOk">Começar</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Regras -->
+<dialog id="rulesDialog" class="wide">
+  <div class="rules">
+    <h2>Como jogar</h2>
+    <h3>Objetivo</h3>
+    <p>Cerque completamente a <b>Rainha Abelha</b> do adversário: as 6 casas ao redor dela precisam estar ocupadas (por peças de qualquer cor). Se as duas Rainhas forem cercadas ao mesmo tempo, é empate.</p>
+    <h3>Seu turno</h3>
+    <p>Em cada turno você <b>coloca</b> uma peça nova da sua mão <b>ou move</b> uma peça que já está no tabuleiro. Clique numa peça: as casas possíveis são destacadas (pontos verdes = movimento; anéis vermelhos = ataque; azul = arremesso; roxo = controle; laranja = troca).</p>
+    <ul>
+      <li>Uma peça nova deve encostar <b>só em peças da sua cor</b> (exceção: a 2ª peça da partida pode encostar na 1ª).</li>
+      <li>A <b>Rainha</b> precisa ser colocada até a sua <b>4ª peça</b>.</li>
+      <li>Você só pode mover peças depois de colocar a sua Rainha.</li>
+      <li><b>Colmeia única:</b> uma jogada nunca pode dividir a colmeia em dois grupos.</li>
+      <li><b>Liberdade de movimento:</b> uma peça não passa por vãos estreitos — para deslizar entre duas casas vizinhas, uma das duas casas laterais precisa estar livre (e outra ocupada, para continuar encostada na colmeia).</li>
+      <li>Peças cobertas por um Besouro (ou outra peça) não podem se mover.</li>
+      <li>Se você não tiver nenhuma jogada, passa a vez automaticamente.</li>
+    </ul>
+    <h3>Peças</h3>
+    <div id="rulesPieces" class="piece-list"></div>
+
+    <h3>Hive Colony (módulos de fã)</h3>
+    <ul>
+      <li><b>Venom</b> — cada peça tem um inseto no verso. Ao colocar, escolha o lado (botão ↻ na mão). Em vez de mover, você pode <b>virar</b> uma peça sua (gasta o turno), exceto: peça coberta, peça que o adversário acabou de mover, peça vizinha de um Escorpião inimigo ativo, peça paralisada. A Rainha sempre entra como Abelha. Perde quem tiver a Rainha (Abelha ou Vespa) cercada.</li>
+      <li><b>Swarm</b> — cada jogador começa com a Rainha + 3 peças sorteadas; as demais (inclusive as do adversário) vão para um saco. Ao colocar uma peça você compra outra do saco. Pode colocar peças da cor do adversário (elas seguem a regra de cor delas). Depois de colocar a Rainha, você pode, no lugar de jogar, comprar uma peça extra ou roubar uma peça sua que esteja na mão do adversário.</li>
+      <li><b>Predators</b> — Louva-a-deus e Percevejo Assassino eliminam peças (e a si mesmos) permanentemente. Eliminar a Rainha do adversário vence na hora. O Mosquito que copiar uma eliminação também é eliminado.</li>
+      <li><b>Guardians</b> — Borboleta e Mariposa só entram em cima de uma peça sua (e não podem encostar em cor adversária). Para vencer, a Rainha precisa estar cercada <b>e coberta por cima</b>.</li>
+      <li><b>Honeycombo</b> — uma peça neutra começa no centro, com o lado preto para cima. Quem tem a sua cor virada para cima (e já colocou a Rainha) pode gastá-la para virar a peça; no turno seguinte joga <b>duas vezes</b>. O adversário não pode desvirá-la imediatamente. Ela conta como casa ocupada e não pode ser movida nem coberta.</li>
+    </ul>
+    <p class="note"><b>Nota:</b> as regras completas do Hive Colony são um PDF de fã e eu só consegui consultar as descrições públicas. Quais insetos ficam no verso de cada peça e alguns detalhes de borda foram interpretados — o pareamento está em <code>VENOM_BACK</code> no arquivo <code>js/engine.js</code> e pode ser ajustado.</p>
+    <h3>Relógio e online</h3>
+    <ul>
+      <li><b>Relógio:</b> cada jogador tem um tempo total; o relógio de quem está jogando corre, e quem ficar sem tempo perde. O tempo só começa a contar depois da 1ª jogada das Brancas. Alguns controles somam segundos extras a cada jogada (ex.: 5+3). No turno duplo do Honeycombo o relógio continua correndo.</li>
+      <li><b>Online:</b> em <i>Novo jogo → Online</i>, crie a sala e mande o código ou o link ao amigo (ou use <i>Entrar em sala</i>). A conexão é direta entre os dois aparelhos. Se o celular for para segundo plano e a conexão cair, ela volta sozinha; o relógio continua correndo nesse meio-tempo.</li>
+    </ul>
+    <p class="note">Projeto de fã, sem fins lucrativos e sem vínculo com os autores. <b>Hive</b> é criação de John Yianni (Gen42 Games); o <b>Hive Colony</b> é uma expansão de fã de Stephen Taylor. Se gostou, apoie os criadores comprando o jogo de tabuleiro.</p>
+    <menu><button class="btn primary" id="rulesClose">Fechar</button></menu>
+  </div>
+</dialog>
+
+<!-- Entrar em sala -->
+<dialog id="joinDialog">
+  <h2>Entrar em sala online</h2>
+  <p class="sub">Digite o código de 5 letras que o seu amigo recebeu ao criar a sala.</p>
+  <input id="joinCode" class="input" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="ABCDE" inputmode="text">
+  <p id="joinStatus" class="sub"></p>
+  <menu>
+    <button class="btn" id="joinCancel">Cancelar</button>
+    <button class="btn primary" id="joinGo">Entrar</button>
+  </menu>
+</dialog>
+
+<!-- Sala do anfitrião -->
+<dialog id="lobbyDialog">
+  <h2>Sala criada</h2>
+  <p class="sub">Envie este código ou link para o seu amigo. A partida começa quando ele entrar.</p>
+  <div class="roomcode" id="roomCode">…</div>
+  <input id="roomLink" class="input" readonly>
+  <p id="lobbyStatus" class="sub">Conectando ao servidor de salas…</p>
+  <menu>
+    <button class="btn" id="lobbyLeave">Cancelar sala</button>
+    <button class="btn" id="lobbyShare">Compartilhar</button>
+    <button class="btn primary" id="lobbyCopy">Copiar link</button>
+  </menu>
+</dialog>
+
+<!-- Fim de jogo -->
+<dialog id="endDialog">
+  <h2 id="endTitle"></h2>
+  <p id="endText"></p>
+  <menu>
+    <button class="btn" id="endView">Ver tabuleiro</button>
+    <button class="btn primary" id="endNew">Novo jogo</button>
+  </menu>
+</dialog>
+
+<script src="js/icons.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/vendor/peerjs.min.js"></script>
+<script src="js/online.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
