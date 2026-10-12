@@ -5,7 +5,9 @@ Jogo de tabuleiro **Hive** (e a versão de fã **Hive Colony**) para jogar no na
 - Hive original + Mosquito, Joaninha e Tatuzinho
 - Hive Colony: Venom, Swarm, Predators, Guardians e Honeycombo
 - Destaque das jogadas possíveis (como em sites de xadrez)
-- Relógio de xadrez (com incremento)
+- Relógio de xadrez totalmente configurável: minutos e segundos, tempos diferentes por lado, incremento ou atraso
+- Setas e marcações como no Lichess (botão direito + Shift/Ctrl/Alt; no celular, dedo parado + outro dedo)
+- Layout para celular (retrato e paisagem), instalável na tela inicial (PWA), tela fica ligada durante partidas online
 - Contra o computador (3 níveis), 2 jogadores no mesmo aparelho ou **online** (sala por código/link)
 
 ## Jogar

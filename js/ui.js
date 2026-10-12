@@ -22,7 +22,7 @@ const App = {
   state: null, history: [], log: [], players: [{ ai: false }, { ai: false }], bottom: 0,
   sel: null, steps: [], cands: [], acts: [], infoPiece: null, hoverPiece: null,
   lastMove: null, view: { tx: 0, ty: 0, k: 1, auto: true }, busy: false, gameId: 0, ended: false,
-  clock: null,      // { base, inc, ms:[a,b], running, last }
+  clock: null,      // { b:[s0,s1], inc, delay, ms:[a,b], running, last }
   result: null,     // { winner, reason } quando termina por tempo / desistência
   online: null      // { mySide, connected, rematch:[me,them] }
 };
@@ -123,16 +123,26 @@ function humanTurn() {
 function refreshActs() { App.acts = humanTurn() ? allActions(App.state) : []; }
 
 /* ---------------- Relógio ---------------- */
+/* time = { b: [segundos das Brancas, segundos das Pretas], inc: s, delay: s } */
 function parseTime(v) {
   if (!v || v === '0') return null;
   const [m, i] = v.split('+');
-  return { base: +m, inc: +i || 0 };
+  return { b: [+m, +m], inc: +i || 0, delay: 0 };
 }
+function describeTime(t) {
+  if (!t) return 'sem relógio';
+  const f = s => (s % 60 === 0 ? (s / 60) + ' min' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'));
+  let r = t.b[0] === t.b[1] ? f(t.b[0]) : `${f(t.b[0])} (Brancas) / ${f(t.b[1])} (Pretas)`;
+  if (t.inc) r += ` + ${t.inc} s`;
+  if (t.delay) r += ` · atraso ${t.delay} s`;
+  return r;
+}
+function chargedSince(c, now) { return Math.max(0, now - c.last - c.delay * 1000); }
 function clockRemaining(p) {
   const c = App.clock;
   if (!c) return Infinity;
   let ms = c.ms[p];
-  if (c.running && !gameOver() && App.state.turn === p) ms -= Date.now() - c.last;
+  if (c.running && !gameOver() && App.state.turn === p) ms -= chargedSince(c, Date.now());
   return ms;
 }
 function fmtClock(ms) {
@@ -183,7 +193,7 @@ function startGame(cfg, opts) {
   App.players = opts.players;
   App.bottom = opts.bottom;
   App.online = opts.online || null;
-  App.clock = opts.time ? { base: opts.time.base, inc: opts.time.inc, ms: [opts.time.base * 1000, opts.time.base * 1000], running: false, last: 0 } : null;
+  App.clock = opts.time ? { b: opts.time.b.slice(), inc: opts.time.inc || 0, delay: opts.time.delay || 0, ms: [opts.time.b[0] * 1000, opts.time.b[1] * 1000], running: false, last: 0 } : null;
   clearTimeout(flagTimer); flagTimer = null;
   $('modeBadge').textContent = App.state.cfg.mode === 'colony' ? 'Colony' : 'Original';
   if ($('endDialog').open) $('endDialog').close();
@@ -211,7 +221,7 @@ function doAction(a, remote, remoteMs) {
     if (c.running) {
       if (remote && remoteMs != null) c.ms[mover] = remoteMs;
       else {
-        c.ms[mover] -= now - c.last;
+        c.ms[mover] -= chargedSince(c, now);
         if (ns.turn !== mover) c.ms[mover] += c.inc * 1000;
         if (c.ms[mover] <= 0) c.ms[mover] = 1;   // a jogada chegou a tempo
       }
@@ -224,6 +234,7 @@ function doAction(a, remote, remoteMs) {
     Online.send({ t: 'move', n: App.log.length - 1, a, ms: c ? c.ms[mover] : null });
   }
   App.sel = null; App.steps = []; App.cands = []; App.infoPiece = null;
+  App.shapes = []; App.draft = null;
   hideChooser();
   afterChange();
 }
@@ -239,11 +250,23 @@ function resign() {
   afterChange();
 }
 
+let wakeLock = null;
+async function updateWakeLock() {
+  const want = !!App.state && !gameOver() && (!!App.online || (App.clock && App.clock.running));
+  try {
+    if (want && !wakeLock && navigator.wakeLock && !document.hidden) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!want && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) { wakeLock = null; }
+}
+
 function afterChange() {
   const gid = App.gameId;
   const s = App.state;
   refreshActs();
   render();
+  updateWakeLock();
   if (gameOver()) { showEnd(); return; }
   if (humanTurn() && App.acts.length === 1 && App.acts[0].type === 'pass') {
     toast('Você não tem jogadas possíveis — a vez passa.');
@@ -502,8 +525,10 @@ function renderBoard() {
     const occ = !!s.board[c];
     out += `<g class="hl ${cls} ${occ ? 'occ' : 'empty'}" data-cell="${c}" transform="translate(${x},${y})"><polygon class="hl-hex" points="${hexPts(R * 0.94)}"/><circle class="hl-dot" r="${R * 0.2}"/></g>`;
   }
+  out += '<g id="shapes" style="pointer-events:none"></g>';
   out += '</g>';
   $('board').innerHTML = out;
+  renderShapes();
   applyView(hl);
 }
 
@@ -526,8 +551,8 @@ function fitView(hl, w, h) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const c of cells) {
     const [x, y] = cellXY(c);
-    x0 = Math.min(x0, x - R * 2.6); x1 = Math.max(x1, x + R * 2.6);
-    y0 = Math.min(y0, y - R * 2.6); y1 = Math.max(y1, y + R * 2.6);
+    x0 = Math.min(x0, x - R * 1.9); x1 = Math.max(x1, x + R * 1.9);
+    y0 = Math.min(y0, y - R * 1.9); y1 = Math.max(y1, y + R * 1.9);
   }
   const pad = 8;
   const bw = x1 - x0, bh = y1 - y0;
@@ -559,6 +584,9 @@ function renderHand(el, idx) {
   const clock = App.clock ? `<span class="clock" data-clock="${idx}">${fmtClock(clockRemaining(idx))}</span>` : '';
   let html = `<div class="who"><span>${WHO[idx]}${tag}${isTurn ? ' — vez de jogar' : ''}</span><span class="whoR">${s.cfg.swarm ? 'Saco: ' + s.bag.length + ' · ' : ''}${clock}</span></div>`;
   const mineHand = humanTurn() && s.turn === idx;
+  const oldTiles = el.querySelector('.tiles');
+  const scrollL = oldTiles ? oldTiles.scrollLeft : 0, scrollT = oldTiles ? oldTiles.scrollTop : 0;
+  html += '<div class="tiles">';
   for (const [gk, list] of groups) {
     const p = s.pieces[list[0]];
     const selected = App.sel && App.sel.src === 'hand' && list.includes(App.sel.pid);
@@ -571,7 +599,10 @@ function renderHand(el, idx) {
     html += `<button class="${cls.join(' ')}" data-pid="${list[0]}" data-idx="${idx}" title="${pname(p)}">${tileSVG(p, 56)}${list.length > 1 ? `<span class="cnt">${list.length}</span>` : ''}${flip}</button>`;
   }
   if (!groups.size) html += '<span class="handinfo">Mão vazia</span>';
+  html += '</div>';
   el.innerHTML = html;
+  const nt = el.querySelector('.tiles');
+  if (nt) { nt.scrollLeft = scrollL; nt.scrollTop = scrollT; }
 }
 
 function renderStatus() {
@@ -581,6 +612,7 @@ function renderStatus() {
     const o = App.online;
     html += `<div class="sub">🌐 Online · você joga de ${WHO[o.mySide]} · oponente ${o.connected ? '<b style="color:var(--good)">conectado</b>' : '<b style="color:var(--bad)">desconectado</b> (reconectando…)'}</div>`;
   }
+  if (App.clock) html += `<div class="sub">⏱ ${describeTime({ b: App.clock.b, inc: App.clock.inc, delay: App.clock.delay })}</div>`;
   if (gameOver()) {
     html += `<div class="turnline">🏁 Fim de jogo</div>`;
   } else {
@@ -608,7 +640,7 @@ function renderInfo() {
   const p = App.hoverPiece || App.infoPiece;
   const el = $('info');
   if (!p) {
-    el.innerHTML = `<h3>Peça</h3><p class="infotext">Clique numa peça sua no tabuleiro ou na mão para ver para onde ela pode ir. Passe o mouse sobre qualquer peça para ver as regras dela.</p>`;
+    el.innerHTML = `<h3>Peça</h3><p class="infotext">Toque (ou clique) numa peça sua no tabuleiro ou na mão para ver para onde ela pode ir. Toque em qualquer peça para ver a regra dela. Dica: botão direito (ou dedo parado + outro dedo) desenha setas.</p>`;
     return;
   }
   const t = ptype(p);
@@ -631,19 +663,20 @@ function renderActions() {
   const btns = [];
   if (App.sel && App.sel.src === 'board') {
     const f = App.acts.find(a => a.type === 'flip' && a.src === App.sel.cell);
-    if (f) btns.push({ label: '↻ Virar esta peça (gasta o turno)', a: f });
+    if (f) btns.push({ label: '↻ Virar esta peça', a: f });
   }
   const fc = App.acts.find(a => a.type === 'flipcombo');
-  if (fc) btns.push({ label: '🍯 Virar o Honeycombo (joga 2x no próximo turno)', a: fc });
+  if (fc) btns.push({ label: '🍯 Virar Honeycombo (2 jogadas depois)', a: fc });
   const dr = App.acts.find(a => a.type === 'draw');
-  if (dr) btns.push({ label: '🎲 Comprar uma peça do saco (gasta o turno)', a: dr });
-  if (s.cfg.swarm && App.acts.some(a => a.type === 'steal')) html += `<div class="sub">Para roubar uma peça sua da mão do adversário, clique nela (tem contorno laranja).</div>`;
+  if (dr) btns.push({ label: '🎲 Comprar do saco', a: dr });
+  if (s.cfg.swarm && App.acts.some(a => a.type === 'steal')) html = '<span class="hint">Toque numa peça sua com contorno laranja na mão do adversário para roubá-la.</span>';
   if (!btns.length && !html) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = '<h3>Ações especiais</h3>' + html;
+  el.innerHTML = html;
   btns.forEach(b => {
     const bt = document.createElement('button');
-    bt.className = 'btn block'; bt.textContent = b.label;
+    bt.className = 'btn'; bt.textContent = b.label;
+    bt.title = 'Gasta o turno';
     bt.onclick = () => doAction(b.a);
     el.appendChild(bt);
   });
@@ -656,19 +689,111 @@ function renderLog() {
 }
 
 /* ---------------- Eventos do tabuleiro ---------------- */
+/* ---------------- Setas e marcações (estilo Lichess) ---------------- */
+const BRUSH = { green: '#3fbf4a', red: '#ee3d3d', blue: '#3b82f6', yellow: '#f5b800' };
+App.brush = 'green';
+App.shapes = [];      // { from, to, color }  (from === to => círculo)
+App.draft = null;     // desenho em andamento
+
+function pixelToCell(clientX, clientY) {
+  const rect = $('board').getBoundingClientRect();
+  const x = (clientX - rect.left - App.view.tx) / App.view.k;
+  const y = (clientY - rect.top - App.view.ty) / App.view.k;
+  const q = (SQ3 / 3 * x - y / 3) / R, r = (2 / 3 * y) / R;
+  const cx = q, cz = r, cy = -cx - cz;
+  let rx = Math.round(cx), ry = Math.round(cy), rz = Math.round(cz);
+  const dx = Math.abs(rx - cx), dy = Math.abs(ry - cy), dz = Math.abs(rz - cz);
+  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry;
+  return key(rx, rz);
+}
+function brushFor(e) {
+  if (e && e.shiftKey) return 'red';
+  if (e && (e.ctrlKey || e.metaKey)) return 'blue';
+  if (e && e.altKey) return 'yellow';
+  return App.brush;
+}
+function toggleShape(from, to, color) {
+  const i = App.shapes.findIndex(s => s.from === from && s.to === to);
+  if (i >= 0) {
+    const same = App.shapes[i].color === color;
+    App.shapes.splice(i, 1);
+    if (same) { renderShapes(); return; }
+  }
+  App.shapes.push({ from, to, color });
+  renderShapes();
+}
+function clearShapes() {
+  if (!App.shapes.length && !App.draft) return;
+  App.shapes = []; App.draft = null;
+  renderShapes();
+}
+function arrowPath(a, b) {
+  const [x1, y1] = cellXY(a), [x2, y2] = cellXY(b);
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+  const w = R * 0.16, hw = R * 0.36, hl = R * 0.5;
+  const sx = x1 + ux * R * 0.12, sy = y1 + uy * R * 0.12;
+  const tx = x2 - ux * R * 0.16, ty = y2 - uy * R * 0.16;
+  const hx = tx - ux * hl, hy = ty - uy * hl;
+  const P = (x, y) => x.toFixed(1) + ',' + y.toFixed(1);
+  return [P(sx + nx * w / 2, sy + ny * w / 2), P(hx + nx * w / 2, hy + ny * w / 2), P(hx + nx * hw, hy + ny * hw), P(tx, ty),
+    P(hx - nx * hw, hy - ny * hw), P(hx - nx * w / 2, hy - ny * w / 2), P(sx - nx * w / 2, sy - ny * w / 2)].join(' ');
+}
+function shapeMarkup(s, op) {
+  const col = BRUSH[s.color] || BRUSH.green;
+  if (s.from === s.to) {
+    const [x, y] = cellXY(s.from);
+    return `<polygon transform="translate(${x},${y})" points="${hexPts(R * 0.88)}" fill="none" stroke="${col}" stroke-width="${R * 0.12}" stroke-linejoin="round" opacity="${op}"/>`;
+  }
+  return `<polygon points="${arrowPath(s.from, s.to)}" fill="${col}" stroke="rgba(0,0,0,.35)" stroke-width="1" stroke-linejoin="round" opacity="${op}"/>`;
+}
+function renderShapes() {
+  const g = $('shapes');
+  if (!g) return;
+  let out = '';
+  for (const s of App.shapes) out += shapeMarkup(s, 0.82);
+  if (App.draft) out += shapeMarkup(App.draft, 0.55);
+  g.innerHTML = out;
+}
+
 function setupBoardEvents() {
   const svg = $('board');
   const ptrs = new Map();
-  let drag = null, pinch = null;
+  let drag = null, pinch = null, draw = null;
   const setWorld = () => {
     const w = $('world');
     if (w) { w.style.transition = 'none'; w.style.transform = `translate(${App.view.tx}px,${App.view.ty}px) scale(${App.view.k})`; }
   };
+  const finishDraw = e => {
+    const d = draw; draw = null;
+    if (!d) return;
+    const to = e ? pixelToCell(e.clientX, e.clientY) : d.from;
+    App.draft = null;
+    toggleShape(d.from, to, d.color);
+  };
+  svg.addEventListener('contextmenu', e => e.preventDefault());
   svg.addEventListener('pointerdown', e => {
+    // botão direito do mouse: desenhar
+    if (e.pointerType === 'mouse' && e.button === 2) {
+      draw = { id: e.pointerId, from: pixelToCell(e.clientX, e.clientY), color: brushFor(e) };
+      App.draft = { from: draw.from, to: draw.from, color: draw.color };
+      renderShapes();
+      return;
+    }
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t0: Date.now(), moved: false });
     if (ptrs.size === 2) {
-      const [a, b] = [...ptrs.values()];
+      const [id1, a] = [...ptrs.entries()][0];
+      const b = ptrs.get(e.pointerId);
+      // dedo 1 parado há um tempo + dedo 2 = desenhar; senão = pinça de zoom
+      if (id1 !== e.pointerId && !a.moved && Date.now() - a.t0 >= 300) {
+        draw = { id: e.pointerId, from: pixelToCell(b.x, b.y), color: App.brush, anchor: id1 };
+        App.draft = { from: draw.from, to: draw.from, color: draw.color };
+        renderShapes();
+        drag = null; pinch = null;
+        try { navigator.vibrate && navigator.vibrate(12); } catch (err) { /* ignore */ }
+        return;
+      }
       pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, k: App.view.k, tx: App.view.tx, ty: App.view.ty, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       drag = null; App.view.auto = false;
       return;
@@ -676,7 +801,16 @@ function setupBoardEvents() {
     if (ptrs.size === 1) drag = { x: e.clientX, y: e.clientY, tx: App.view.tx, ty: App.view.ty, moved: false };
   });
   window.addEventListener('pointermove', e => {
-    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const rec = ptrs.get(e.pointerId);
+    if (rec) {
+      rec.x = e.clientX; rec.y = e.clientY;
+      if (!rec.moved && Math.hypot(rec.x - rec.sx, rec.y - rec.sy) > 10) rec.moved = true;
+    }
+    if (draw && draw.id === e.pointerId) {
+      const to = pixelToCell(e.clientX, e.clientY);
+      if (!App.draft || App.draft.to !== to) { App.draft = { from: draw.from, to, color: draw.color }; renderShapes(); }
+      return;
+    }
     if (pinch && ptrs.size >= 2) {
       const [a, b] = [...ptrs.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -698,18 +832,25 @@ function setupBoardEvents() {
     if (drag.moved) { App.view.tx = drag.tx + dx; App.view.ty = drag.ty + dy; setWorld(); }
   });
   window.addEventListener('pointerup', e => {
+    if (draw && draw.id === e.pointerId) { ptrs.delete(e.pointerId); finishDraw(e); return; }
+    if (draw && draw.anchor === e.pointerId) { ptrs.delete(e.pointerId); draw = null; App.draft = null; renderShapes(); drag = null; return; }
     ptrs.delete(e.pointerId);
     if (pinch) { if (ptrs.size < 2) { pinch = null; drag = null; } return; }
     if (!drag) return;
     const d = drag; drag = null;
     svg.classList.remove('dragging');
     if (d.moved) return;
+    clearShapes();
     const target = document.elementFromPoint(e.clientX, e.clientY);
     const g = target && target.closest ? target.closest('#board [data-cell]') : null;
     if (!g) { if (target && target.closest && target.closest('#board')) deselect(); return; }
     onCellClick(g.dataset.cell, g.classList.contains('hl'), e);
   });
-  window.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); drag = null; pinch = null; svg.classList.remove('dragging'); });
+  window.addEventListener('pointercancel', e => {
+    ptrs.delete(e.pointerId);
+    if (draw && (draw.id === e.pointerId || draw.anchor === e.pointerId)) { draw = null; App.draft = null; renderShapes(); }
+    drag = null; pinch = null; svg.classList.remove('dragging');
+  });
   svg.addEventListener('wheel', e => {
     e.preventDefault();
     const rect = svg.getBoundingClientRect();
@@ -728,6 +869,15 @@ function setupBoardEvents() {
     if ((App.hoverPiece ? App.hoverPiece.id : null) !== id) { App.hoverPiece = p; renderInfo(); }
   });
   svg.addEventListener('mouseleave', () => { if (App.hoverPiece) { App.hoverPiece = null; renderInfo(); } });
+
+  // paleta de cores
+  document.querySelectorAll('.brush[data-brush]').forEach(b => {
+    b.addEventListener('click', () => {
+      App.brush = b.dataset.brush;
+      document.querySelectorAll('.brush[data-brush]').forEach(x => x.classList.toggle('sel', x === b));
+    });
+  });
+  $('btnClearShapes').addEventListener('click', clearShapes);
 }
 
 function setupHandEvents() {
@@ -780,8 +930,8 @@ function buildSync() {
   let clock = null;
   if (c) {
     const ms = c.ms.slice();
-    if (c.running && !gameOver()) ms[App.state.turn] -= Date.now() - c.last;
-    clock = { base: c.base, inc: c.inc, ms, running: c.running };
+    if (c.running && !gameOver()) ms[App.state.turn] -= chargedSince(c, Date.now());
+    clock = { b: c.b, inc: c.inc, delay: c.delay, ms, running: c.running };
   }
   return { t: 'sync', state: App.state, log: App.log, lastMove: App.lastMove, clock, hostSide: App.online.hostSide, result: App.result };
 }
@@ -789,7 +939,7 @@ function applySync(m) {
   const mySide = 1 - m.hostSide;
   startGame(null, {
     state: m.state, players: onlinePlayers(mySide), bottom: mySide, online: makeOnline(mySide, m.hostSide),
-    time: m.clock ? { base: m.clock.base, inc: m.clock.inc } : null, log: m.log, lastMove: m.lastMove
+    time: m.clock ? { b: m.clock.b, inc: m.clock.inc, delay: m.clock.delay } : null, log: m.log, lastMove: m.lastMove
   });
   if (m.clock) { App.clock.ms = m.clock.ms; App.clock.running = m.clock.running; App.clock.last = Date.now(); }
   if (m.result) { App.result = m.result; afterChange(); }
@@ -806,6 +956,7 @@ function onRemoteMove(msg) {
   const match = allActions(App.state).find(x => actionSig(x) === sig);
   if (!match) { requestSync(); return; }
   doAction(match, true, msg.ms);
+  try { navigator.vibrate && navigator.vibrate(35); } catch (e) { /* ignore */ }
 }
 function onOnlineMessage(msg) {
   if (!msg || !msg.t) return;
@@ -863,7 +1014,7 @@ function onOnlineStatus(st) {
 function startRematch() {
   const o = App.online;
   const cfg = App.state.cfg;
-  const time = App.clock ? { base: App.clock.base, inc: App.clock.inc } : null;
+  const time = App.clock ? { b: App.clock.b, inc: App.clock.inc, delay: App.clock.delay } : null;
   const hostSide = 1 - o.hostSide;
   startGame(cfg, { players: onlinePlayers(hostSide), bottom: hostSide, online: makeOnline(hostSide, hostSide), time });
   Online.send(buildSync());
@@ -902,6 +1053,34 @@ function newDefaultGame() {
 }
 
 /* ---------------- Diálogos ---------------- */
+function readTimeForm(f) {
+  const g = n => f.elements[n];
+  if (g('time').value !== 'custom') return parseTime(g('time').value);
+  const n = (x, max) => Math.max(0, Math.min(max, Math.floor(+g(x).value || 0)));
+  const s0 = Math.max(5, n('m0', 600) * 60 + n('s0', 59));
+  const s1 = g('diffTime').checked ? Math.max(5, n('m1', 600) * 60 + n('s1', 59)) : s0;
+  const bonus = n('bonus', 600), type = g('bonusType').value;
+  return { b: [s0, s1], inc: type === 'inc' ? bonus : 0, delay: type === 'delay' ? bonus : 0 };
+}
+const TIME_FIELDS = ['time', 'm0', 's0', 'm1', 's1', 'bonus', 'bonusType'];
+function saveTimePrefs(f) {
+  try {
+    const o = {};
+    for (const k of TIME_FIELDS) o[k] = f.elements[k].value;
+    o.diffTime = f.elements.diffTime.checked;
+    localStorage.setItem('hive-time', JSON.stringify(o));
+  } catch (e) { /* ignore */ }
+}
+function loadTimePrefs(f) {
+  try {
+    const o = JSON.parse(localStorage.getItem('hive-time') || 'null');
+    if (!o) return;
+    for (const k of TIME_FIELDS) if (o[k] !== undefined) f.elements[k].value = o[k];
+    f.elements.diffTime.checked = !!o.diffTime;
+    if (f.elements.time.value !== o.time) f.elements.time.value = '600+0';
+  } catch (e) { /* ignore */ }
+}
+
 function readNewForm() {
   const f = $('newForm');
   const g = n => f.elements[n];
@@ -909,7 +1088,8 @@ function readNewForm() {
   const cfg = { mode, mosquito: g('mosquito').checked, ladybug: g('ladybug').checked, pillbug: g('pillbug').checked };
   if (mode === 'colony') for (const k of ['venom', 'swarm', 'predators', 'guardians', 'honeycombo']) cfg[k] = g(k).checked;
   const opp = g('opp').value;
-  const time = parseTime(g('time').value);
+  const time = readTimeForm(f);
+  saveTimePrefs(f);
   let side = g('side').value;
   if (side === 'r') side = Math.random() < 0.5 ? '0' : '1';
   const me = +side;
@@ -928,6 +1108,8 @@ function syncNewForm() {
   const colony = f.elements.mode.value === 'colony';
   $('colonyOpts').hidden = !colony;
   $('sideRow').hidden = f.elements.opp.value === 'human';
+  $('customTime').hidden = f.elements.time.value !== 'custom';
+  document.querySelector('#customTime .diff').hidden = !f.elements.diffTime.checked;
 }
 function buildRules() {
   const order = [
@@ -956,6 +1138,7 @@ function init() {
   setupBoardEvents();
   setupHandEvents();
   buildRules();
+  loadTimePrefs($('newForm'));
   Online.handlers.onMessage = onOnlineMessage;
   Online.handlers.onStatus = onOnlineStatus;
 
@@ -965,6 +1148,27 @@ function init() {
   $('btnResign').onclick = resign;
   $('btnFit').onclick = () => { App.view.auto = true; const w = $('world'); if (w) w.style.transition = ''; applyView(); };
   $('btnRules').onclick = () => $('rulesDialog').showModal();
+
+  // menu e gaveta de detalhes (celular)
+  const openSide = v => { $('side').classList.toggle('open', v); $('sideBackdrop').hidden = !v; };
+  $('btnDetails').onclick = () => openSide(!$('side').classList.contains('open'));
+  $('btnSideClose').onclick = () => openSide(false);
+  $('sideBackdrop').onclick = () => openSide(false);
+  $('btnMenu').onclick = () => $('menuDialog').showModal();
+  $('menuDialog').addEventListener('click', e => {
+    const b = e.target.closest('[data-menu]');
+    if (e.target === $('menuDialog')) { $('menuDialog').close(); return; }
+    if (!b) return;
+    $('menuDialog').close();
+    switch (b.dataset.menu) {
+      case 'new': $('btnNew').click(); break;
+      case 'join': $('btnJoin').click(); break;
+      case 'undo': undo(); break;
+      case 'fit': $('btnFit').click(); break;
+      case 'rules': $('btnRules').click(); break;
+      case 'resign': resign(); break;
+    }
+  });
   $('rulesClose').onclick = () => $('rulesDialog').close();
   $('newForm').addEventListener('change', syncNewForm);
   $('newCancel').onclick = e => { e.preventDefault(); $('newDialog').close(); };
@@ -1003,7 +1207,7 @@ function init() {
   if (window.ResizeObserver) new ResizeObserver(() => { if (App.state) applyView(); }).observe($('boardWrap'));
   setInterval(clockTick, 200);
   // ao voltar para a aba (celular), força uma checagem de conexão/relógio
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { clockTick(); if (App.online && !Online.connected && Online.role === 'guest') Online.scheduleRetry(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { updateWakeLock(); clockTick(); if (App.online && !Online.connected && Online.role === 'guest') Online.scheduleRetry(); } });
 
   newDefaultGame();
   syncNewForm();

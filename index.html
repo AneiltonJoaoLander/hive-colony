@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#101217">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hive">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="description" content="Hive e Hive Colony (versão de fã) para jogar no navegador: contra o computador, em 2 jogadores ou online, com relógio.">
 <title>Hive & Hive Colony</title>
 <link rel="stylesheet" href="style.css">
@@ -14,12 +21,16 @@
     <svg viewBox="-50 -50 100 100" width="30" height="30" aria-hidden="true"><polygon points="0,-46 40,-23 40,23 0,46 -40,23 -40,-23" fill="#f5b800" stroke="#1a1a1a" stroke-width="4"/><g transform="scale(.8)" id="logoBee"></g></svg>
     <h1>Hive <span id="modeBadge">Original</span></h1>
   </div>
-  <nav>
+  <nav class="nav-desktop">
     <button id="btnNew" class="btn primary">Novo jogo</button>
     <button id="btnJoin" class="btn">🌐 Entrar em sala</button>
     <button id="btnUndo" class="btn">↶ Desfazer</button>
     <button id="btnFit" class="btn">⌖ Centralizar</button>
     <button id="btnRules" class="btn">Regras</button>
+  </nav>
+  <nav class="nav-mobile">
+    <button id="btnDetails" class="btn" aria-label="Jogadas e detalhes">📋</button>
+    <button id="btnMenu" class="btn primary" aria-label="Menu">☰ Menu</button>
   </nav>
 </header>
 
@@ -29,26 +40,51 @@
     <div class="board-wrap" id="boardWrap">
       <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
       <div id="turnChip" class="chip"></div>
-      <div id="infoBar" class="infobar" hidden></div>
+      <div id="brushBar" class="brushbar" aria-label="Cor das setas">
+        <button class="brush sel" data-brush="green" style="--c:#3fbf4a" aria-label="Verde"></button>
+        <button class="brush" data-brush="red" style="--c:#ee3d3d" aria-label="Vermelho"></button>
+        <button class="brush" data-brush="blue" style="--c:#3b82f6" aria-label="Azul"></button>
+        <button class="brush" data-brush="yellow" style="--c:#f5b800" aria-label="Amarelo"></button>
+        <button class="brush clear" id="btnClearShapes" aria-label="Apagar setas" title="Apagar setas">✕</button>
+      </div>
+      <div class="overlay-bottom">
+        <div id="actions" class="floatbar" hidden></div>
+        <div id="infoBar" class="infobar" hidden></div>
+      </div>
       <div id="chooser" class="chooser" hidden></div>
       <div id="toast" class="toast" hidden></div>
     </div>
     <div class="hand hand-bottom" id="handBottom"></div>
   </section>
 
-  <aside class="side">
+  <div id="sideBackdrop" class="side-backdrop" hidden></div>
+  <aside class="side" id="side">
+    <div class="sheet-head"><b>Detalhes da partida</b><button class="btn" id="btnSideClose">Fechar</button></div>
     <div id="status" class="card"></div>
     <div id="gameBtns" class="card row" hidden>
       <button id="btnResign" class="btn">🏳 Desistir</button>
     </div>
     <div id="info" class="card"></div>
-    <div id="actions" class="card" hidden></div>
     <div class="card history">
       <h3>Jogadas</h3>
       <ol id="log"></ol>
     </div>
   </aside>
 </main>
+
+<!-- Menu (celular) -->
+<dialog id="menuDialog" class="sheet">
+  <h2>Menu</h2>
+  <div class="menulist">
+    <button class="btn primary" data-menu="new">Novo jogo</button>
+    <button class="btn" data-menu="join">🌐 Entrar em sala</button>
+    <button class="btn" data-menu="undo">↶ Desfazer jogada</button>
+    <button class="btn" data-menu="fit">⌖ Centralizar tabuleiro</button>
+    <button class="btn" data-menu="rules">Regras e peças</button>
+    <button class="btn" data-menu="resign">🏳 Desistir</button>
+    <button class="btn" data-menu="close">Fechar</button>
+  </div>
+</dialog>
 
 <!-- Novo jogo -->
 <dialog id="newDialog">
@@ -94,14 +130,46 @@
 
     <fieldset>
       <legend>Relógio</legend>
-      <select name="time" class="select">
+      <select name="time" class="select" id="timePreset">
         <option value="0">Sem relógio</option>
-        <option value="180+2">3 min + 2 s por jogada</option>
-        <option value="300+3">5 min + 3 s por jogada</option>
+        <option value="60+0">1 min (bullet)</option>
+        <option value="120+1">2 min + 1 s</option>
+        <option value="180+0">3 min</option>
+        <option value="180+2">3 min + 2 s</option>
+        <option value="300+0">5 min</option>
+        <option value="300+3">5 min + 3 s</option>
         <option value="600+0" selected>10 min</option>
-        <option value="900+10">15 min + 10 s por jogada</option>
+        <option value="600+5">10 min + 5 s</option>
+        <option value="900+10">15 min + 10 s</option>
         <option value="1800+0">30 min</option>
+        <option value="1800+20">30 min + 20 s</option>
+        <option value="custom">⚙ Personalizado…</option>
       </select>
+      <div id="customTime" class="customtime" hidden>
+        <div class="grid2">
+          <label>Tempo das <b>Brancas</b>
+            <span class="pair"><input type="number" name="m0" min="0" max="600" value="10" inputmode="numeric"> min
+            <input type="number" name="s0" min="0" max="59" value="0" inputmode="numeric"> s</span>
+          </label>
+          <label class="diff" hidden>Tempo das <b>Pretas</b>
+            <span class="pair"><input type="number" name="m1" min="0" max="600" value="10" inputmode="numeric"> min
+            <input type="number" name="s1" min="0" max="59" value="0" inputmode="numeric"> s</span>
+          </label>
+        </div>
+        <label class="check"><input type="checkbox" name="diffTime"> Tempos diferentes para cada lado (handicap)</label>
+        <div class="grid2">
+          <label>Bônus por jogada
+            <span class="pair"><input type="number" name="bonus" min="0" max="600" value="0" inputmode="numeric"> s</span>
+          </label>
+          <label>Tipo de bônus
+            <select name="bonusType" class="select">
+              <option value="inc">Incremento — soma após cada jogada</option>
+              <option value="delay">Atraso — os primeiros segundos de cada jogada não contam</option>
+            </select>
+          </label>
+        </div>
+        <small class="sub">Dica: 5 min + 3 s por jogada = tempo 5:00 e bônus 3 (incremento).</small>
+      </div>
     </fieldset>
 
     <menu>
@@ -140,9 +208,15 @@
       <li><b>Honeycombo</b> — uma peça neutra começa no centro, com o lado preto para cima. Quem tem a sua cor virada para cima (e já colocou a Rainha) pode gastá-la para virar a peça; no turno seguinte joga <b>duas vezes</b>. O adversário não pode desvirá-la imediatamente. Ela conta como casa ocupada e não pode ser movida nem coberta.</li>
     </ul>
     <p class="note"><b>Nota:</b> as regras completas do Hive Colony são um PDF de fã e eu só consegui consultar as descrições públicas. Quais insetos ficam no verso de cada peça e alguns detalhes de borda foram interpretados — o pareamento está em <code>VENOM_BACK</code> no arquivo <code>js/engine.js</code> e pode ser ajustado.</p>
+    <h3>Setas e marcações (como no Lichess)</h3>
+    <ul>
+      <li><b>Computador:</b> clique com o <b>botão direito</b> numa casa para marcá-la com um círculo, ou arraste de uma casa a outra para desenhar uma seta. Cores: sem tecla = cor escolhida na paleta, <b>Shift</b> = vermelho, <b>Ctrl</b> = azul, <b>Alt</b> = amarelo. Repita o mesmo desenho para apagá-lo.</li>
+      <li><b>Celular:</b> segure um dedo parado no tabuleiro e, com o outro dedo, toque numa casa (círculo) ou arraste entre duas casas (seta). Escolha a cor na paleta no canto do tabuleiro.</li>
+      <li>Um toque/clique normal no tabuleiro, ou o botão ✕, apaga todos os desenhos. As marcações são só suas — o adversário não as vê.</li>
+    </ul>
     <h3>Relógio e online</h3>
     <ul>
-      <li><b>Relógio:</b> cada jogador tem um tempo total; o relógio de quem está jogando corre, e quem ficar sem tempo perde. O tempo só começa a contar depois da 1ª jogada das Brancas. Alguns controles somam segundos extras a cada jogada (ex.: 5+3). No turno duplo do Honeycombo o relógio continua correndo.</li>
+      <li><b>Relógio:</b> cada jogador tem um tempo total; o relógio de quem está jogando corre, e quem ficar sem tempo perde. O tempo só começa a contar depois da 1ª jogada das Brancas. Você pode escolher um controle pronto ou <b>personalizar</b>: minutos e segundos, tempos diferentes para cada lado (handicap) e bônus por jogada, como <i>incremento</i> (soma tempo depois de jogar) ou <i>atraso</i> (os primeiros segundos de cada jogada não gastam tempo). No turno duplo do Honeycombo o relógio continua correndo.</li>
       <li><b>Online:</b> em <i>Novo jogo → Online</i>, crie a sala e mande o código ou o link ao amigo (ou use <i>Entrar em sala</i>). A conexão é direta entre os dois aparelhos. Se o celular for para segundo plano e a conexão cair, ela volta sozinha; o relógio continua correndo nesse meio-tempo.</li>
     </ul>
     <p class="note">Projeto de fã, sem fins lucrativos e sem vínculo com os autores. <b>Hive</b> é criação de John Yianni (Gen42 Games); o <b>Hive Colony</b> é uma expansão de fã de Stephen Taylor. Se gostou, apoie os criadores comprando o jogo de tabuleiro.</p>
