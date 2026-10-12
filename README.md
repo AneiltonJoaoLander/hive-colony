@@ -11,6 +11,10 @@ Jogo de tabuleiro **Hive** (e a versão de fã **Hive Colony**) para jogar no na
 - Sons e efeitos sonoros sintetizados (peças, ataques, sua vez, pouco tempo, perigo para a Rainha, fim de jogo), com volume e mudo
 - Contra o computador (3 níveis), 2 jogadores no mesmo aparelho ou **online** (sala por código/link)
 
+## Peças para imprimir
+
+`pecas-hive.pdf` (A4, 10 páginas): todas as peças do Hive e do Hive Colony com versos do Venom alinhados para frente e verso, Honeycombo, referência e resumo das regras. A página `pecas.html` gera o mesmo conteúdo (Ctrl+P).
+
 ## Jogar
 
 Abra `index.html` (funciona direto do disco) ou acesse a versão publicada no GitHub Pages.

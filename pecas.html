@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive & Hive Colony — peças para imprimir</title>
+<style>
+  @page { size: A4; margin: 10mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font: 10.5pt/1.4 "Segoe UI", Arial, sans-serif; color: #111; background: #8a8f98; }
+  .page { width: 190mm; margin: 8mm auto; padding: 0; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  .tilepage { height: 277mm; page-break-after: always; break-after: page; }
+  .tilepage svg { display: block; width: 190mm; height: 277mm; }
+  .text { padding: 0; min-height: 277mm; }
+  .break { page-break-before: always; break-before: page; }
+  .intro { page-break-after: always; break-after: page; }
+  h1 { font-size: 22pt; margin: 0 0 2mm; }
+  h2 { font-size: 14pt; margin: 6mm 0 2mm; border-bottom: 1.5px solid #111; padding-bottom: 1mm; }
+  p, li { margin: 1.5mm 0; }
+  ul { padding-left: 5mm; margin: 1mm 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 10pt; margin: 2mm 0; }
+  th, td { border: 1px solid #555; padding: 1.6mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #e8e8e8; }
+  .note { border: 1px solid #999; background: #f5f5f5; padding: 2.5mm 3mm; font-size: 9.5pt; margin-top: 4mm; }
+  .ref { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5mm 5mm; }
+  .item { display: flex; gap: 3mm; align-items: flex-start; page-break-inside: avoid; break-inside: avoid; border: 1px solid #bbb; border-radius: 2mm; padding: 1.5mm 2mm; }
+  .item svg { flex: none; width: 17mm; height: 19mm; }
+  .item b { display: block; font-size: 10pt; }
+  .item span { font-size: 8.6pt; line-height: 1.3; color: #222; }
+  .item em { font-size: 8pt; color: #2d7a14; font-style: normal; }
+  .sec { grid-column: 1 / -1; font-weight: 700; margin-top: 2mm; font-size: 10.5pt; }
+  .screen-only { background: #fff3c4; border: 1px solid #d8b400; padding: 3mm; margin: 4mm auto; width: 190mm; font-size: 10pt; }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; width: auto; }
+    .screen-only { display: none; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="screen-only"><b>Como gerar o PDF:</b> use <i>Ctrl+P</i> → destino "Salvar como PDF" (ou impressora), papel A4, margens "Padrão" e <b>escala 100%</b> (não use "ajustar à página"). Se marcar "frente e verso", escolha "virar na borda longa".</div>
+<div id="root"></div>
+
+<script src="js/icons.js"></script>
+<script src="js/engine.js"></script>
+<script>
+'use strict';
+const TILE = 34;                         // mm, de lado reto a lado reto
+const R = TILE / Math.sqrt(3);           // raio do hexágono (mm)
+const COLS = 5;
+const PW = 190, PH = 277;                // área útil da página (mm)
+
+function hexPts(r) {
+  let s = '';
+  for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i - 30); s += (r * Math.cos(a)).toFixed(3) + ',' + (r * Math.sin(a)).toFixed(3) + ' '; }
+  return s.trim();
+}
+
+/* peça: { type, color: 0|1|2, venomBack: bool, label } */
+function tile(p, r) {
+  const T = TYPES[p.type];
+  let body, edge, ink;
+  if (p.color === 0) { body = '#fffdf6'; edge = '#8d8670'; ink = '#333'; }
+  else if (p.color === 1) { body = '#2b2d33'; edge = '#000'; ink = '#e5e5e5'; }
+  else { body = '#3d3010'; edge = '#000'; ink = '#f5e1a0'; }
+  let s = `<polygon points="${hexPts(r)}" fill="${body}" stroke="#666" stroke-width="0.25" stroke-linejoin="round"/>`;
+  s += `<polygon points="${hexPts(r * 0.9)}" fill="none" stroke="${edge}" stroke-width="0.35" stroke-opacity=".7"/>`;
+  if (p.venomBack) s += `<polygon points="${hexPts(r * 0.8)}" fill="none" stroke="#6fbf2b" stroke-width="0.5" stroke-dasharray="2.2 1.2"/>`;
+  s += `<g transform="translate(0,${(-r * 0.07).toFixed(2)}) scale(${(r * 0.0138).toFixed(4)})">${iconMarkup(p.type, T.color)}</g>`;
+  s += `<text x="0" y="${(r * 0.74).toFixed(2)}" text-anchor="middle" font-size="2.3" font-family="Segoe UI, Arial, sans-serif" fill="${ink}" font-weight="600">${p.label || T.name}</text>`;
+  return s;
+}
+
+/* posições da grade em favo de mel */
+function positions(n, mirror) {
+  const left = (PW - (COLS * TILE + TILE / 2)) / 2;
+  const top = 26;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / COLS), col = i % COLS;
+    let x = left + TILE / 2 + col * TILE + (row % 2 ? TILE / 2 : 0);
+    const y = top + R + row * R * 1.5;
+    if (mirror) x = PW - x;
+    out.push([x, y]);
+  }
+  return out;
+}
+
+const ORIG = ['queen', 'beetle', 'beetle', 'spider', 'spider', 'grasshopper', 'grasshopper', 'grasshopper', 'ant', 'ant', 'ant', 'mosquito', 'ladybug', 'pillbug'];
+const EXTRA = ['mantis', 'assassin', 'butterfly', 'moth'];
+
+function sheet(title, subtitle, items, color, mirror, backs) {
+  let s = `<div class="page tilepage"><svg viewBox="0 0 ${PW} ${PH}" xmlns="http://www.w3.org/2000/svg">`;
+  s += `<text x="0" y="8" font-size="6.5" font-weight="700" font-family="Segoe UI, Arial, sans-serif">${title}</text>`;
+  s += `<text x="0" y="14" font-size="3.2" font-family="Segoe UI, Arial, sans-serif" fill="#333">${subtitle}</text>`;
+  const pos = positions(items.length, mirror);
+  items.forEach((t, i) => {
+    if (backs && !VENOM_BACK[t]) return;                  // sem verso
+    const type = backs ? VENOM_BACK[t] : t;
+    s += `<g transform="translate(${pos[i][0].toFixed(3)},${pos[i][1].toFixed(3)})">${tile({ type, color, venomBack: !!backs }, R)}</g>`;
+  });
+  // legenda inferior
+  const ly = 26 + R + Math.ceil(items.length / COLS) * R * 1.5 + 14;
+  s += legend(ly, backs ? 'back' : 'front', color);
+  s += '</svg></div>';
+  return s;
+}
+
+function legend(y, kind, color) {
+  const who = color === 0 ? 'Brancas' : 'Pretas';
+  const lines = kind === 'front' ? [
+    `Imprima em A4, escala 100%. Cada hexágono mede ${TILE} mm de lado reto a lado reto.`,
+    'As linhas cinza são as linhas de corte (as peças se encostam, então um corte separa duas).',
+    `Peças das ${who}: 1 Rainha, 2 Besouros, 2 Aranhas, 3 Gafanhotos, 3 Formigas (jogo básico)`,
+    '+ Mosquito, Joaninha e Tatuzinho (expansões oficiais)  +  Louva-a-deus e Percevejo Assassino (Predators)',
+    '+ Borboleta e Mariposa (Guardians). Essas 4 últimas não têm verso.'
+  ] : [
+    'VERSOS DO VENOM — imprima na parte de trás da folha de frentes (frente e verso, virando na borda longa).',
+    'Os desenhos já estão espelhados para casar com as frentes. Sem impressão em duas faces: imprima à parte, recorte e cole atrás.',
+    'Só as 14 primeiras peças têm verso; Predators e Guardians não têm.',
+    'Pareamento (frente → verso): Rainha→Vespa, Besouro→Percevejo-escudo, Formiga→Mosca, Gafanhoto→Libélula,',
+    'Aranha→Escorpião, Mosquito→Carrapato, Joaninha→Vaga-lume, Tatuzinho→Centopeia.'
+  ];
+  return lines.map((t, i) => `<text x="0" y="${(y + i * 5).toFixed(1)}" font-size="3.1" font-family="Segoe UI, Arial, sans-serif" fill="#222">${t}</text>`).join('');
+}
+
+function comboSheet(face) {
+  const who = face === 0 ? 'lado BRANCO' : 'lado PRETO';
+  let s = `<div class="page tilepage"><svg viewBox="0 0 ${PW} ${PH}" xmlns="http://www.w3.org/2000/svg">`;
+  s += `<text x="0" y="8" font-size="6.5" font-weight="700" font-family="Segoe UI, Arial, sans-serif">Honeycombo — ${face === 0 ? 'frente' : 'verso'} (${who})</text>`;
+  s += `<text x="0" y="14" font-size="3.2" font-family="Segoe UI, Arial, sans-serif" fill="#333">Peça neutra e compartilhada. Imprima frente e verso e cole as duas faces (o lado branco de um lado, o preto do outro).</text>`;
+  let x = PW / 2, y = 60;
+  if (face === 1) x = PW - x;     // espelhado (no centro dá o mesmo)
+  s += `<g transform="translate(${x},${y})">${comboTile(face)}</g>`;
+  s += '</svg></div>';
+  return s;
+}
+function comboTile(face) {
+  const r = R * 1.25;
+  const T = TYPES.combo;
+  let s = `<polygon points="${hexPts(r)}" fill="#3d3010" stroke="#666" stroke-width="0.25"/>`;
+  s += `<polygon points="${hexPts(r * 0.86)}" fill="none" stroke="${face === 0 ? '#fffdf6' : '#111'}" stroke-width="${(r * 0.13).toFixed(2)}" stroke-linejoin="round"/>`;
+  s += `<polygon points="${hexPts(r * 0.86)}" fill="none" stroke="#777" stroke-width="0.25"/>`;
+  s += `<g transform="scale(${(r * 0.0152).toFixed(4)})">${iconMarkup('combo', T.color)}</g>`;
+  return s;
+}
+
+function refPage() {
+  const groups = [
+    ['Hive original', ['queen', 'beetle', 'grasshopper', 'spider', 'ant']],
+    ['Expansões oficiais', ['mosquito', 'ladybug', 'pillbug']],
+    ['Colony — Venom (versos)', ['wasp', 'shieldbug', 'fly', 'dragonfly', 'scorpion', 'tick', 'firefly', 'centipede']],
+    ['Colony — Predators', ['mantis', 'assassin']],
+    ['Colony — Guardians', ['butterfly', 'moth']],
+    ['Colony — Honeycombo', ['combo']]
+  ];
+  let h = '<div class="page text break"><h1>Referência das peças</h1><div class="ref">';
+  for (const [name, list] of groups) {
+    h += `<div class="sec">${name}</div>`;
+    for (const t of list) {
+      const T = TYPES[t];
+      const back = Object.keys(VENOM_BACK).find(k => VENOM_BACK[k] === t);
+      h += `<div class="item"><svg viewBox="-24 -24 48 48">${tile({ type: t, color: t === 'combo' ? 2 : 0, venomBack: !!back, label: '' }, 22)}</svg><div><b>${T.name}</b><span>${T.desc}</span>${back ? `<br><em>verso do(a) ${TYPES[back].name}</em>` : ''}</div></div>`;
+    }
+  }
+  h += '</div></div>';
+  return h;
+}
+
+function rulesPage() {
+  return `<div class="page text break">
+<h1>Resumo das regras</h1>
+<h2>Objetivo</h2>
+<p>Cercar completamente a <b>Rainha Abelha</b> do adversário: as 6 casas ao redor dela ocupadas (por peças de qualquer cor). Se as duas Rainhas forem cercadas ao mesmo tempo, é empate.</p>
+<h2>Seu turno</h2>
+<p>Coloque uma peça nova da sua reserva <b>ou</b> mova uma peça que já está na mesa.</p>
+<ul>
+<li>Peça nova: deve encostar <b>só em peças da sua cor</b> (exceção: a 2ª peça da partida pode encostar na 1ª).</li>
+<li>A <b>Rainha</b> precisa ser colocada até a sua <b>4ª peça</b>. Antes de colocá-la, você não pode mover peças.</li>
+<li><b>Colmeia única:</b> nenhuma jogada pode dividir as peças em dois grupos separados.</li>
+<li><b>Liberdade de movimento:</b> a peça só desliza se couber entre as vizinhas (uma das duas casas laterais deve estar livre, a outra ocupada).</li>
+<li>Peça coberta por outra (ex.: pelo Besouro) não se move. Se não houver jogada possível, passe a vez.</li>
+</ul>
+<h2>Hive Colony (módulos de fã)</h2>
+<ul>
+<li><b>Venom</b> — cada peça tem um inseto no verso. Ao colocar você escolhe o lado. Em vez de mover você pode <b>virar</b> uma peça sua (gasta o turno), exceto peça coberta, peça que o adversário acabou de mover, peça vizinha de Escorpião inimigo ativo ou paralisada. A Rainha sempre entra como Abelha. Perde quem tiver a Rainha (Abelha ou Vespa) cercada.</li>
+<li><b>Swarm</b> — cada jogador começa com a Rainha + 3 peças sorteadas; as outras (inclusive do adversário) vão para um saco. Ao colocar uma peça, compre outra do saco. Peças da cor do adversário seguem a regra de cor delas. Depois da Rainha, em vez de jogar você pode comprar uma peça extra ou roubar uma peça sua da mão do adversário.</li>
+<li><b>Predators</b> — Louva-a-deus e Percevejo Assassino eliminam peças (e a si mesmos) para sempre. Eliminar a Rainha do adversário vence na hora. O Mosquito que copiar uma eliminação também sai.</li>
+<li><b>Guardians</b> — Borboleta e Mariposa só entram em cima de uma peça sua e não podem encostar em cor adversária. Para vencer, a Rainha precisa estar cercada <b>e coberta por cima</b>.</li>
+<li><b>Honeycombo</b> — peça neutra começa no centro com o lado preto para cima. Quem tem a sua cor virada para cima (e já colocou a Rainha) pode gastar o turno virando-a; no turno seguinte joga <b>duas vezes</b>. O adversário não pode desvirá-la logo em seguida. Conta como casa ocupada; não pode ser movida, eliminada nem coberta.</li>
+</ul>
+<div class="note"><b>Nota:</b> as regras completas do Hive Colony são um PDF de fã que não pude consultar na íntegra. O pareamento frente→verso do Venom e alguns detalhes foram interpretados a partir das descrições públicas e são os mesmos usados na versão digital do jogo — se o seu manual divergir, vale o manual. Confira os versos nas folhas "Versos do Venom" antes de recortar.</div>
+<div class="note">Projeto de fã, sem fins lucrativos e sem vínculo com os autores. <b>Hive</b> é criação de John Yianni (Gen42 Games); <b>Hive Colony</b> é uma expansão de fã de Stephen Taylor. Estas folhas são para uso pessoal. Se gostar do jogo, apoie os criadores comprando o jogo de tabuleiro.</div>
+</div>`;
+}
+
+function intro() {
+  return `<div class="page text intro">
+<h1>Hive &amp; Hive Colony — peças para imprimir</h1>
+<p>Kit de impressão (A4) com todas as peças: jogo básico, expansões oficiais (Mosquito, Joaninha, Tatuzinho) e módulos do <b>Hive Colony</b> (Venom, Swarm, Predators, Guardians e Honeycombo). Para jogar online: <b>aneiltonjoaolander.github.io/hive-colony</b></p>
+<h2>Como imprimir e montar</h2>
+<ul>
+<li>Imprima em <b>A4, escala 100%</b> (desative "ajustar à página"). Cada peça mede <b>${TILE} mm</b> de lado reto a lado reto.</li>
+<li>Sugestão de material: papel cartão 180–250 g/m², ou cole em EVA, papelão grosso (3 mm) ou madeira fina para dar peso às peças.</li>
+<li>Recorte nas linhas cinza em volta de cada hexágono (as peças dividem as bordas).</li>
+<li>Se a impressora faz <b>frente e verso</b>, as folhas de versos do Venom já saem espelhadas para casar (virar na <b>borda longa</b>). Teste primeiro com uma folha de rascunho.</li>
+</ul>
+<h2>O que imprimir para cada versão</h2>
+<table>
+<tr><th>Versão</th><th>Folhas</th><th>Peças por jogador</th></tr>
+<tr><td><b>Hive básico</b></td><td>Frentes (Brancas e Pretas) — só as 11 primeiras peças de cada cor</td><td>1 Rainha, 2 Besouros, 2 Aranhas, 3 Gafanhotos, 3 Formigas</td></tr>
+<tr><td>+ Expansões oficiais</td><td>as mesmas folhas de frentes</td><td>+ Mosquito, Joaninha, Tatuzinho (14)</td></tr>
+<tr><td>+ Venom</td><td>+ Versos do Venom (Brancas e Pretas)</td><td>14 peças de duas faces</td></tr>
+<tr><td>+ Predators / Guardians</td><td>as mesmas folhas de frentes</td><td>+ Louva-a-deus, Percevejo Assassino / Borboleta, Mariposa</td></tr>
+<tr><td>+ Honeycombo</td><td>folha Honeycombo (frente e verso)</td><td>1 peça neutra compartilhada</td></tr>
+<tr><td>Swarm</td><td>nenhuma extra — use um saquinho de pano para as peças</td><td>—</td></tr>
+</table>
+<h2>Ordem das páginas</h2>
+<p>1 Instruções · 2 Brancas (frentes) · 3 Brancas (versos Venom) · 4 Pretas (frentes) · 5 Pretas (versos Venom) · 6–7 Honeycombo · 8–9 Referência das peças · 10 Resumo das regras.</p>
+<div class="note"><b>Dica de tinta:</b> as peças pretas gastam bastante tinta. Se preferir economizar, imprima as pretas em papel cartão preto com as peças brancas, ou me peça uma versão "contorno" econômica.</div>
+</div>`;
+}
+
+const parts = [intro()];
+const wItems = ORIG.concat(EXTRA);
+parts.push(sheet('Brancas — frentes', 'Jogo básico, expansões oficiais, Predators e Guardians', wItems, 0, false, false));
+parts.push(sheet('Brancas — versos do Venom', 'Imprimir no verso da folha "Brancas — frentes" (virar na borda longa)', wItems, 0, true, true));
+parts.push(sheet('Pretas — frentes', 'Jogo básico, expansões oficiais, Predators e Guardians', wItems, 1, false, false));
+parts.push(sheet('Pretas — versos do Venom', 'Imprimir no verso da folha "Pretas — frentes" (virar na borda longa)', wItems, 1, true, true));
+parts.push(comboSheet(0), comboSheet(1));
+parts.push(refPage(), rulesPage());
+document.getElementById('root').innerHTML = parts.join('\n');
+</script>
+</body>
+</html>
