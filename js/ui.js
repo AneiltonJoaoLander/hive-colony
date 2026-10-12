@@ -24,7 +24,9 @@ const App = {
   lastMove: null, view: { tx: 0, ty: 0, k: 1, auto: true }, busy: false, gameId: 0, ended: false,
   clock: null,      // { b:[s0,s1], inc, delay, ms:[a,b], running, last }
   result: null,     // { winner, reason } quando termina por tempo / desistência
-  online: null      // { mySide, connected, rematch:[me,them] }
+  online: null,     // { mySide, connected, rematch:[me,them] }
+  premove: null,    // { a, text } jogada antecipada
+  preCache: null
 };
 
 function gameOver() { return !!App.result || (App.state && App.state.winner !== null); }
@@ -122,6 +124,48 @@ function humanTurn() {
 }
 function refreshActs() { App.acts = humanTurn() ? allActions(App.state) : []; }
 
+/* ---------------- Jogada antecipada (premove) ----------------
+   Só existe quando há exatamente um humano local (contra o computador ou online).
+   Enquanto o adversário pensa, você escolhe uma jogada como se fosse a sua vez;
+   ela é executada automaticamente quando a vez chega, se ainda for legal. */
+function canPremove() {
+  const s = App.state;
+  if (!s || gameOver()) return false;
+  const me = myIdx();
+  return me !== null && s.turn !== me;
+}
+function actorIdx() {
+  if (humanTurn()) return App.state.turn;
+  if (canPremove()) return myIdx();
+  return null;
+}
+function hypState() {
+  if (!App.preCache || App.preCache.state !== App.state) {
+    const h = cloneState(App.state);
+    h.turn = myIdx(); h.actionsLeft = 1;
+    App.preCache = { state: App.state, hyp: h, acts: allActions(h) };
+  }
+  return App.preCache;
+}
+function activeActs() { return humanTurn() ? App.acts : (canPremove() ? hypState().acts : []); }
+function setPremove(a) {
+  App.premove = { a, text: describe(hypState().hyp, a) };
+  App.sel = null; App.steps = []; App.cands = [];
+  hideChooser();
+  Sound.play('mark');
+  render();
+}
+function cancelPremove(quiet) {
+  if (!App.premove) return;
+  App.premove = null;
+  if (!quiet) toast('Jogada antecipada cancelada.');
+  render();
+}
+function commitAction(a) {
+  if (humanTurn()) doAction(a);
+  else if (canPremove()) setPremove(a);
+}
+
 /* ---------------- Relógio ---------------- */
 /* time = { b: [segundos das Brancas, segundos das Pretas], inc: s, delay: s } */
 function parseTime(v) {
@@ -194,6 +238,7 @@ function startGame(cfg, opts) {
   App.state = opts.state || newGame(cfg);
   App.history = []; App.log = opts.log || []; App.sel = null; App.steps = []; App.cands = [];
   App.infoPiece = null; App.lastMove = opts.lastMove || null; App.busy = false; App.ended = false; App.result = null;
+  App.premove = null; App.preCache = null;
   App.view = { tx: 0, ty: 0, k: 1, auto: true };
   App.players = opts.players;
   App.bottom = opts.bottom;
@@ -287,7 +332,19 @@ function afterChange() {
   refreshActs();
   render();
   updateWakeLock();
-  if (gameOver()) { showEnd(); return; }
+  if (gameOver()) { App.premove = null; showEnd(); return; }
+  if (App.premove && humanTurn()) {
+    const pm = App.premove; App.premove = null;
+    const sig = actionSig(pm.a);
+    const m = App.acts.find(x => actionSig(x) === sig);
+    if (m) {
+      setTimeout(() => { if (App.gameId === gid && App.state === s && humanTurn()) doAction(m); }, 90);
+      return;
+    }
+    toast('Jogada antecipada cancelada: ela já não é possível.');
+    Sound.play('error');
+    render();
+  }
   if (humanTurn() && App.acts.length === 1 && App.acts[0].type === 'pass') {
     toast('Você não tem jogadas possíveis — a vez passa.');
     setTimeout(() => { if (App.gameId === gid && App.state === s) doAction(App.acts[0]); }, 1100);
@@ -308,6 +365,7 @@ function afterChange() {
 function undo() {
   if (App.busy || App.online || App.result || !App.history.length) return;
   App.gameId++;
+  App.premove = null;
   let h;
   do {
     h = App.history.pop();
@@ -356,33 +414,37 @@ function showEnd() {
 
 /* ---------------- Seleção ---------------- */
 function deselect() {
+  const had = !!App.sel;
   App.sel = null; App.steps = []; App.cands = []; hideChooser();
   App.infoPiece = null;
+  if (!had && App.premove) { cancelPremove(); return; }
   render();
 }
 function selectCell(k) {
   const s = App.state;
   App.sel = { src: 'board', cell: k };
   App.steps = [];
-  App.cands = App.acts.filter(a => a.src === k && a.type !== 'flip');
+  const acts = activeActs(), who = actorIdx();
+  App.cands = acts.filter(a => a.src === k && a.type !== 'flip');
   App.infoPiece = topPiece(s, k);
   hideChooser();
   render();
   Sound.play('select');
-  const hasFlip = App.acts.some(a => a.src === k && a.type === 'flip');
+  const hasFlip = acts.some(a => a.src === k && a.type === 'flip');
   if (!App.cands.length && !hasFlip) {
-    if (!queenPlaced(s, s.turn)) toast('Coloque a sua Rainha antes de mover peças.');
+    if (!queenPlaced(s, who)) toast('Coloque a sua Rainha antes de mover peças.');
     else toast('Esta peça não tem movimentos agora.');
   }
 }
 function selectHand(pid) {
   const s = App.state;
   const p = s.pieces[pid];
-  const forceQueen = s.placed[s.turn] >= 3 && !queenPlaced(s, s.turn);
+  const who = actorIdx();
+  const forceQueen = s.placed[who] >= 3 && !queenPlaced(s, who);
   App.sel = { src: 'hand', pid };
   App.steps = [];
   const face = (p.face && p.back) ? 1 : 0;
-  App.cands = App.acts.filter(a => a.type === 'place' && a.pid === pid && a.face === face);
+  App.cands = activeActs().filter(a => a.type === 'place' && a.pid === pid && a.face === face);
   App.infoPiece = p;
   hideChooser();
   render();
@@ -398,7 +460,8 @@ function onCellClick(k, isHl, ev) {
   const top = topPiece(s, k);
   if (!top) { deselect(); return; }
   if (App.sel && App.sel.src === 'board' && App.sel.cell === k) { deselect(); return; }
-  if (humanTurn() && top.color === s.turn) selectCell(k);
+  const who = actorIdx();
+  if (who !== null && top.color === who) selectCell(k);
   else {
     App.sel = null; App.steps = []; App.cands = [];
     App.infoPiece = top;
@@ -413,7 +476,7 @@ function stepClick(k, ev) {
   const proceed = ms => {
     const complete = ms.filter(a => a.steps.length === idx + 1);
     const partial = ms.filter(a => a.steps.length > idx + 1);
-    if (complete.length) { doAction(complete[0]); return; }
+    if (complete.length) { commitAction(complete[0]); return; }
     App.steps.push(k);
     App.cands = partial;
     hideChooser();
@@ -525,7 +588,7 @@ function renderBoard() {
     const st = s.board[k];
     const [x, y] = cellXY(k);
     const top = s.pieces[st[st.length - 1]];
-    const mine = humanTurn() && top.color === s.turn;
+    const mine = actorIdx() !== null && top.color === actorIdx();
     out += `<g class="piece${mine ? ' mine' : ''}" data-cell="${k}" transform="translate(${x},${y})">`;
     const n = st.length;
     for (let i = Math.max(0, n - 3); i < n; i++) {
@@ -534,6 +597,21 @@ function renderBoard() {
     }
     if (n > 1) out += `<circle cx="${R * 0.58}" cy="${-R * 0.62}" r="10" fill="#e53935" stroke="#000" stroke-width="1.5"/><text x="${R * 0.58}" y="${-R * 0.62 + 4.5}" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">${n}</text>`;
     out += '</g>';
+  }
+  // jogada antecipada (fantasma)
+  if (App.premove) {
+    const pa = App.premove.a, lm = lastMoveOf(pa);
+    if (lm) for (const k of [lm.from, lm.to]) {
+      if (!k) continue;
+      const [x, y] = cellXY(k);
+      out += `<polygon class="premv" transform="translate(${x},${y})" points="${hexPts(R * 0.96)}"/>`;
+    }
+    const pc = s.pieces[pa.pid];
+    if (pc && pa.to && (pa.type === 'place' || pa.type === 'move')) {
+      const [x, y] = cellXY(pa.to);
+      const ghost = Object.assign({}, pc, pa.type === 'place' ? { face: pa.face || 0 } : {});
+      out += `<g opacity=".6" style="pointer-events:none" transform="translate(${x},${y})">${tileMarkup(ghost, R)}</g>`;
+    }
   }
   // seleção
   if (App.sel && App.sel.src === 'board') {
@@ -610,14 +688,15 @@ function renderHand(el, idx) {
   const tag = pl.ai ? ' (computador)' : pl.remote ? ' (oponente)' : (App.online ? ' (você)' : '');
   const clock = App.clock ? `<span class="clock" data-clock="${idx}">${fmtClock(clockRemaining(idx))}</span>` : '';
   let html = `<div class="who"><span>${WHO[idx]}${tag}${isTurn ? ' — vez de jogar' : ''}</span><span class="whoR">${s.cfg.swarm ? 'Saco: ' + s.bag.length + ' · ' : ''}${clock}</span></div>`;
-  const mineHand = humanTurn() && s.turn === idx;
+  const who = actorIdx();
+  const mineHand = who === idx;
   const oldTiles = el.querySelector('.tiles');
   const scrollL = oldTiles ? oldTiles.scrollLeft : 0, scrollT = oldTiles ? oldTiles.scrollTop : 0;
   html += '<div class="tiles">';
   for (const [gk, list] of groups) {
     const p = s.pieces[list[0]];
     const selected = App.sel && App.sel.src === 'hand' && list.includes(App.sel.pid);
-    const stealable = humanTurn() && s.turn !== idx && p.color === s.turn;
+    const stealable = who !== null && who !== idx && p.color === who;
     const cls = ['htile'];
     if (selected) cls.push('sel');
     if (!mineHand && !stealable) cls.push('dim');
@@ -685,26 +764,33 @@ function renderInfo() {
 function renderActions() {
   const el = $('actions');
   const s = App.state;
-  if (!humanTurn()) { el.hidden = true; return; }
+  const actor = actorIdx();
+  if (actor === null && !App.premove) { el.hidden = true; return; }
+  const acts = activeActs();
   let html = '';
   const btns = [];
-  if (App.sel && App.sel.src === 'board') {
-    const f = App.acts.find(a => a.type === 'flip' && a.src === App.sel.cell);
-    if (f) btns.push({ label: '↻ Virar esta peça', a: f });
+  if (App.premove) btns.push({ label: '✕ Cancelar: ' + App.premove.text.replace(/^[^:]+:\s*/, ''), cancel: true, title: 'Cancela a jogada antecipada (ou toque no tabuleiro vazio / Esc)' });
+  if (actor !== null) {
+    if (App.sel && App.sel.src === 'board') {
+      const f = acts.find(a => a.type === 'flip' && a.src === App.sel.cell);
+      if (f) btns.push({ label: '↻ Virar esta peça', a: f });
+    }
+    const fc = acts.find(a => a.type === 'flipcombo');
+    if (fc) btns.push({ label: '🍯 Virar Honeycombo (2 jogadas depois)', a: fc });
+    const dr = acts.find(a => a.type === 'draw');
+    if (dr) btns.push({ label: '🎲 Comprar do saco', a: dr });
+    if (s.cfg.swarm && acts.some(a => a.type === 'steal')) html = '<span class="hint">Toque numa peça sua com contorno laranja na mão do adversário para roubá-la.</span>';
   }
-  const fc = App.acts.find(a => a.type === 'flipcombo');
-  if (fc) btns.push({ label: '🍯 Virar Honeycombo (2 jogadas depois)', a: fc });
-  const dr = App.acts.find(a => a.type === 'draw');
-  if (dr) btns.push({ label: '🎲 Comprar do saco', a: dr });
-  if (s.cfg.swarm && App.acts.some(a => a.type === 'steal')) html = '<span class="hint">Toque numa peça sua com contorno laranja na mão do adversário para roubá-la.</span>';
+  if (actor !== null && !humanTurn() && !App.premove) html += '<span class="hint">⏩ Vez do adversário: escolha uma jogada antecipada.</span>';
   if (!btns.length && !html) { el.hidden = true; return; }
   el.hidden = false;
   el.innerHTML = html;
   btns.forEach(b => {
     const bt = document.createElement('button');
-    bt.className = 'btn'; bt.textContent = b.label;
-    bt.title = 'Gasta o turno';
-    bt.onclick = () => doAction(b.a);
+    bt.className = 'btn' + (b.cancel ? ' premove-cancel' : '');
+    bt.textContent = b.label;
+    bt.title = b.title || 'Gasta o turno';
+    bt.onclick = () => (b.cancel ? cancelPremove() : commitAction(b.a));
     el.appendChild(bt);
   });
 }
@@ -918,7 +1004,7 @@ function setupHandEvents() {
         e.stopPropagation();
         const gk = fl.dataset.flip;
         const s = App.state;
-        for (const pid of s.hands[s.turn]) {
+        for (const pid of s.hands[actorIdx() !== null ? actorIdx() : s.turn]) {
           const p = s.pieces[pid];
           if (p.color + '|' + p.front === gk && p.back) p.face = p.face ? 0 : 1;
         }
@@ -928,12 +1014,13 @@ function setupHandEvents() {
       if (!tile) return;
       const s = App.state;
       const idx = +tile.dataset.idx, pid = tile.dataset.pid;
-      if (!humanTurn()) { App.infoPiece = s.pieces[pid]; renderInfo(); return; }
-      if (idx === s.turn) {
+      const actor = actorIdx();
+      if (actor === null) { App.infoPiece = s.pieces[pid]; renderInfo(); return; }
+      if (idx === actor) {
         if (App.sel && App.sel.src === 'hand' && App.sel.pid === pid) deselect(); else selectHand(pid);
       } else if (s.cfg.swarm) {
-        const a = App.acts.find(x => x.type === 'steal' && x.pid === pid);
-        if (a) showChooser([{ label: `Roubar ${pname(s.pieces[pid])} (gasta o turno)`, fn: () => doAction(a) }], e);
+        const a = activeActs().find(x => x.type === 'steal' && x.pid === pid);
+        if (a) showChooser([{ label: `Roubar ${pname(s.pieces[pid])} (gasta o turno)`, fn: () => commitAction(a) }], e);
       }
     });
     el.addEventListener('mouseover', e => {

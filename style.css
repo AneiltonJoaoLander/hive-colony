@@ -337,3 +337,6 @@ button, .btn, .htile, .brush { touch-action: manipulation; -webkit-tap-highlight
 .vol { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
 .vol input[type=range] { flex: 1; accent-color: var(--accent); height: 28px; }
 #btnSound.off, #btnSoundM.off { opacity: .6; }
+
+.premv { fill: rgba(255,140,0,.2); stroke: #ff8c00; stroke-width: 3; stroke-dasharray: 6 4; stroke-linejoin: round; pointer-events: none; }
+.premove-cancel { border-color: #ff8c00 !important; color: #ffb14a; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
