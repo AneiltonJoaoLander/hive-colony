@@ -47,8 +47,8 @@ const TYPES = {
 
 /* Verso (Venom) de cada peça original — pareamento adotado neste jogo */
 const VENOM_BACK = {
-  queen: 'wasp', beetle: 'shieldbug', ant: 'fly', grasshopper: 'dragonfly',
-  spider: 'scorpion', mosquito: 'tick', ladybug: 'firefly', pillbug: 'centipede'
+  queen: 'wasp', beetle: 'firefly', ant: 'fly', grasshopper: 'dragonfly',
+  spider: 'scorpion', mosquito: 'tick', ladybug: 'shieldbug', pillbug: 'centipede'
 };
 
 /* ---------------- Estado ---------------- */
