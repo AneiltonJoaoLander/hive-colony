@@ -169,13 +169,18 @@ function endByTimeout(loser, announce) {
   if (announce && App.online) Online.send({ t: 'timeout', loser });
   afterChange();
 }
-let flagTimer = null;
+let flagTimer = null, lastTickSec = null;
 function clockTick() {
   const c = App.clock;
   if (!c || !App.state) return;
   renderClocks();
   if (!c.running || gameOver()) return;
   const t = App.state.turn;
+  const rem = clockRemaining(t);
+  if (rem > 0 && rem < 10000 && !App.players[t].ai && !App.players[t].remote) {
+    const sec = Math.ceil(rem / 1000);
+    if (sec !== lastTickSec) { lastTickSec = sec; Sound.play('tick'); }
+  } else lastTickSec = null;
   if (clockRemaining(t) > 0) { clearTimeout(flagTimer); flagTimer = null; return; }
   if (!App.players[t].remote) endByTimeout(t, true);
   else if (!flagTimer) {
@@ -217,6 +222,7 @@ function doAction(a, remote, remoteMs) {
   App.lastMove = lastMoveOf(a) || App.lastMove;
   const ns = applyAction(s, a);
   App.state = ns;
+  playActionSound(s, ns, a, mover, remote);
   if (c) {
     if (c.running) {
       if (remote && remoteMs != null) c.ms[mover] = remoteMs;
@@ -237,6 +243,20 @@ function doAction(a, remote, remoteMs) {
   App.shapes = []; App.draft = null;
   hideChooser();
   afterChange();
+}
+
+function playActionSound(s, ns, a, mover, remote) {
+  const snd = Sound.forAction(a);
+  if (snd) Sound.play(snd);
+  if (ns.winner !== null) return;
+  const nextLocal = !App.players[ns.turn].ai && !App.players[ns.turn].remote;
+  const byOther = remote || App.players[mover].ai;
+  if (byOther && nextLocal && ns.turn !== mover) Sound.play('yourturn', 0.22);
+  // Rainha de um jogador local em perigo (5 ou 6 casas ocupadas ao redor)
+  for (const c of [0, 1]) {
+    if (App.players[c].ai || App.players[c].remote) continue;
+    if (queenPressure(s, c) < 5 && queenPressure(ns, c) >= 5) Sound.play('danger', 0.35);
+  }
 }
 
 function resign() {
@@ -325,6 +345,11 @@ function showEnd() {
   $('endNew').textContent = App.online ? 'Revanche' : 'Novo jogo';
   if (!App.ended) {
     App.ended = true;
+    const me = myIdx();
+    if (winner === 'draw') Sound.play('draw_game');
+    else if (App.result && App.result.reason === 'tempo') Sound.play('timeout');
+    else Sound.play(me === null || winner === me ? 'win' : 'lose', App.result && App.result.reason === 'tempo' ? 0.9 : 0.25);
+    if (App.result && App.result.reason === 'tempo' && me !== null) Sound.play(winner === me ? 'win' : 'lose', 0.9);
     setTimeout(() => { if (!$('endDialog').open) $('endDialog').showModal(); }, 500);
   }
 }
@@ -343,6 +368,7 @@ function selectCell(k) {
   App.infoPiece = topPiece(s, k);
   hideChooser();
   render();
+  Sound.play('select');
   const hasFlip = App.acts.some(a => a.src === k && a.type === 'flip');
   if (!App.cands.length && !hasFlip) {
     if (!queenPlaced(s, s.turn)) toast('Coloque a sua Rainha antes de mover peças.');
@@ -360,6 +386,7 @@ function selectHand(pid) {
   App.infoPiece = p;
   hideChooser();
   render();
+  Sound.play('select');
   if (forceQueen && p.front !== 'queen') toast('Esta é a sua 4ª peça: você precisa colocar a Rainha agora!');
   else if (!App.cands.length) toast('Não há casa válida para esta peça agora.');
 }
@@ -720,6 +747,7 @@ function toggleShape(from, to, color) {
     if (same) { renderShapes(); return; }
   }
   App.shapes.push({ from, to, color });
+  Sound.play('mark');
   renderShapes();
 }
 function clearShapes() {
@@ -1000,6 +1028,7 @@ function onOnlineStatus(st) {
       else toast(st.message);
       break;
     case 'connected':
+      Sound.play('connect');
       if (Online.role === 'host') {
         if ($('lobbyDialog').open) $('lobbyDialog').close();
         toast('Oponente conectado!');
@@ -1007,7 +1036,7 @@ function onOnlineStatus(st) {
       if (App.online) { App.sel = null; App.steps = []; App.cands = []; refreshActs(); render(); }
       break;
     case 'disconnected':
-      if (App.online && !gameOver()) { toast('Oponente desconectado — aguardando reconexão…'); App.sel = null; App.steps = []; App.cands = []; refreshActs(); render(); }
+      if (App.online && !gameOver()) { Sound.play('disconnect'); toast('Oponente desconectado — aguardando reconexão…'); App.sel = null; App.steps = []; App.cands = []; refreshActs(); render(); }
       break;
   }
 }
@@ -1149,6 +1178,26 @@ function init() {
   $('btnFit').onclick = () => { App.view.auto = true; const w = $('world'); if (w) w.style.transition = ''; applyView(); };
   $('btnRules').onclick = () => $('rulesDialog').showModal();
 
+  // som
+  for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, () => Sound.unlock(), { capture: true, passive: true });
+  const refreshSoundUi = () => {
+    const icon = !Sound.on || Sound.vol <= 0 ? '🔇' : '🔊';
+    for (const id of ['btnSound', 'btnSoundM']) { $(id).textContent = icon; $(id).classList.toggle('off', icon === '🔇'); }
+    $('soundOn').checked = Sound.on; $('soundVol').value = Math.round(Sound.vol * 100); $('soundVolTxt').textContent = Math.round(Sound.vol * 100) + '%';
+  };
+  const openSound = () => { refreshSoundUi(); $('soundDialog').showModal(); };
+  $('btnSound').onclick = openSound; $('btnSoundM').onclick = openSound;
+  $('soundOn').onchange = e => { Sound.setOn(e.target.checked); refreshSoundUi(); if (Sound.on) Sound.play('place'); };
+  $('soundVol').oninput = e => { Sound.setVolume(+e.target.value / 100); refreshSoundUi(); };
+  $('soundVol').onchange = () => Sound.play('place');
+  $('soundTest').onclick = () => {
+    Sound.unlock();
+    const seq = ['place', 'move', 'capture', 'sting', 'flip', 'throw', 'control', 'yourturn', 'danger', 'win'];
+    seq.forEach((n, i) => setTimeout(() => Sound.play(n), i * 650));
+  };
+  $('soundClose').onclick = () => $('soundDialog').close();
+  refreshSoundUi();
+
   // menu e gaveta de detalhes (celular)
   const openSide = v => { $('side').classList.toggle('open', v); $('sideBackdrop').hidden = !v; };
   $('btnDetails').onclick = () => openSide(!$('side').classList.contains('open'));
@@ -1166,6 +1215,7 @@ function init() {
       case 'undo': undo(); break;
       case 'fit': $('btnFit').click(); break;
       case 'rules': $('btnRules').click(); break;
+      case 'sound': openSound(); break;
       case 'resign': resign(); break;
     }
   });
@@ -1176,6 +1226,7 @@ function init() {
     e.preventDefault();
     const o = readNewForm();
     $('newDialog').close();
+    Sound.unlock(); Sound.play('start');
     if (o.online) { startOnlineHost(o); return; }
     Online.leave(true);
     startGame(o.cfg, { players: o.players, bottom: o.bottom, time: o.time });

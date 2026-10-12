@@ -27,8 +27,10 @@
     <button id="btnUndo" class="btn">↶ Desfazer</button>
     <button id="btnFit" class="btn">⌖ Centralizar</button>
     <button id="btnRules" class="btn">Regras</button>
+    <button id="btnSound" class="btn" aria-label="Som" title="Som">🔊</button>
   </nav>
   <nav class="nav-mobile">
+    <button id="btnSoundM" class="btn" aria-label="Som">🔊</button>
     <button id="btnDetails" class="btn" aria-label="Jogadas e detalhes">📋</button>
     <button id="btnMenu" class="btn primary" aria-label="Menu">☰ Menu</button>
   </nav>
@@ -72,6 +74,18 @@
   </aside>
 </main>
 
+<!-- Som -->
+<dialog id="soundDialog">
+  <h2>Som</h2>
+  <label class="check"><input type="checkbox" id="soundOn" checked> Sons e efeitos sonoros</label>
+  <label class="vol">Volume <input type="range" id="soundVol" min="0" max="100" step="5" value="70"> <span id="soundVolTxt">70%</span></label>
+  <p class="sub">Sons de peças, ataques, sua vez, pouco tempo (últimos 10 s), perigo para a sua Rainha e fim de jogo. No iPhone, o botão lateral de silencioso também silencia o jogo.</p>
+  <menu>
+    <button class="btn" id="soundTest">▶ Testar</button>
+    <button class="btn primary" id="soundClose">Fechar</button>
+  </menu>
+</dialog>
+
 <!-- Menu (celular) -->
 <dialog id="menuDialog" class="sheet">
   <h2>Menu</h2>
@@ -81,6 +95,7 @@
     <button class="btn" data-menu="undo">↶ Desfazer jogada</button>
     <button class="btn" data-menu="fit">⌖ Centralizar tabuleiro</button>
     <button class="btn" data-menu="rules">Regras e peças</button>
+    <button class="btn" data-menu="sound">🔊 Som</button>
     <button class="btn" data-menu="resign">🏳 Desistir</button>
     <button class="btn" data-menu="close">Fechar</button>
   </div>
@@ -265,6 +280,7 @@
 <script src="js/ai.js"></script>
 <script src="js/vendor/peerjs.min.js"></script>
 <script src="js/online.js"></script>
+<script src="js/sound.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

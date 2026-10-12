@@ -8,6 +8,7 @@ Jogo de tabuleiro **Hive** (e a versão de fã **Hive Colony**) para jogar no na
 - Relógio de xadrez totalmente configurável: minutos e segundos, tempos diferentes por lado, incremento ou atraso
 - Setas e marcações como no Lichess (botão direito + Shift/Ctrl/Alt; no celular, dedo parado + outro dedo)
 - Layout para celular (retrato e paisagem), instalável na tela inicial (PWA), tela fica ligada durante partidas online
+- Sons e efeitos sonoros sintetizados (peças, ataques, sua vez, pouco tempo, perigo para a Rainha, fim de jogo), com volume e mudo
 - Contra o computador (3 níveis), 2 jogadores no mesmo aparelho ou **online** (sala por código/link)
 
 ## Jogar
@@ -27,6 +28,7 @@ Algumas redes (4G com CGNAT, redes corporativas) bloqueiam conexões diretas —
 | `js/ai.js` | computador |
 | `js/icons.js` | silhuetas dos insetos (SVG) |
 | `js/online.js` | conexão P2P (PeerJS) |
+| `js/sound.js` | sons sintetizados (Web Audio) |
 | `js/ui.js` | interface, relógio, jogo online |
 | `js/vendor/peerjs.min.js` | PeerJS 1.5.4 (MIT) |
 
